@@ -44,3 +44,49 @@ except mysql.connector.Error as err:
         print("Database does not exist")
     else:
         print(err)
+        
+# Define the authentication middleware
+async def authenticate(request: Request):
+    try:
+        api_key = request.headers.get('authorization').replace("Bearer ", "")
+        cursor.execute("SELECT * FROM voters WHERE voter_id = %s", (api_key,))
+        if api_key not in [row[0] for row in cursor.fetchall()]:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Forbidden"
+            )
+    except:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Forbidden"
+        )
+
+# Define the POST endpoint for login
+@app.get("/login")
+async def login(request: Request, voter_id: str, password: str):
+    await authenticate(request)
+    role = await get_role(voter_id, password)
+
+    # Assuming authentication is successful, generate a token
+    token = jwt.encode({'password': password, 'voter_id': voter_id, 'role': role}, os.environ['SECRET_KEY'], algorithm='HS256')
+
+    return {'token': token, 'role': role}
+
+# Replace 'admin' with the actual role based on authentication
+async def get_role(voter_id, password):
+    try:
+        cursor.execute("SELECT role FROM voters WHERE voter_id = %s AND password = %s", (voter_id, password,))
+        role = cursor.fetchone()
+        if role:
+            return role[0]
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid voter id or password"
+            )
+    except mysql.connector.Error as err:
+        print(err)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error"
+        )
